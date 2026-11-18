@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Эхо в темноте 3D // LIDAR</title>
+    <!-- Tailwind CSS через CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js через CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Google Fonts: JetBrains Mono -->
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: none; }
+        body { margin: 0; padding: 0; background-color: #000000; color: #e0f7fa; font-family: 'JetBrains Mono', monospace; overflow: hidden; width: 100vw; height: 100vh; position: fixed; inset: 0; }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #00f5d4; cursor: pointer; box-shadow: 0 0 10px #00f5d4; }
+        
+        /* Виньетка опасности */
+        #dangerVignette { pointer-events: none; position: absolute; inset: 0; box-shadow: inset 0 0 120px rgba(255, 42, 95, 0); transition: box-shadow 0.4s ease; z-index: 10; }
+        
+        /* Неоновые эффекты */
+        .neon-cyan { text-shadow: 0 0 10px rgba(0, 245, 212, 0.7); }
+        .neon-gold { text-shadow: 0 0 10px rgba(255, 209, 102, 0.7); }
+        .neon-red { text-shadow: 0 0 10px rgba(255, 42, 95, 0.8); }
+        .panel-glass { background: rgba(5, 10, 15, 0.85); backdrop-filter: blur(10px); border: 1px solid rgba(0, 245, 212, 0.25); box-shadow: 0 0 20px rgba(0, 245, 212, 0.1); }
+
+        /* Накладка поворота телефона в портретном режиме */
+        #rotateOverlay { display: none; }
+        @media screen and (orientation: portrait) {
+            #rotateOverlay { display: flex; }
+        }
+        @keyframes tiltPhone {
+            0%, 15% { transform: rotate(0deg); }
+            45%, 75% { transform: rotate(-90deg); }
+            100% { transform: rotate(0deg); }
+        }
+        .phone-tilt-anim { animation: tiltPhone 2.6s ease-in-out infinite; }
+        
+        /* Мобильные кнопки действий */
+        .mobile-action-btn { backdrop-filter: blur(8px); transition: transform 0.08s ease, box-shadow 0.12s ease, background-color 0.12s ease; }
+        .mobile-action-btn.active-press { transform: scale(0.92); }
+    </style>
+</head>
+<body class="relative w-screen h-screen overflow-hidden select-none bg-black text-teal-100">
+
+    <!-- 1. Накладка подсказки поворота экрана (только портрет на мобилках) -->
+    <div id="rotateOverlay" class="fixed inset-0 z-[60] bg-black/95 flex-col items-center justify-center p-6 text-center select-none">
+        <div class="w-20 h-32 border-4 border-teal-400 rounded-xl flex items-center justify-center mb-6 phone-tilt-anim shadow-[0_0_25px_rgba(0,245,212,0.4)]">
+            <div class="w-3 h-3 bg-teal-400 rounded-full animate-ping"></div>
+        </div>
+        <h2 class="text-xl font-bold text-teal-300 neon-cyan mb-2">Поверните телефон горизонтально</h2>
+        <p class="text-xs text-teal-100/70 max-w-xs mb-6 leading-relaxed">Для управления двумя большими пальцами требуется альбомная ориентация экрана.</p>
+        <button id="btnDismissRotate" class="px-6 py-2.5 bg-teal-500/20 border border-teal-400/50 rounded-xl text-teal-300 text-xs font-bold active:scale-95 transition-all">Продолжить так</button>
+    </div>
+
+    <!-- 2. Стартовое меню -->
+    <div id="startModal" class="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center p-6 text-center">
+        <div class="max-w-md w-full panel-glass p-8 rounded-2xl shadow-2xl relative overflow-hidden">
+            <div class="absolute -top-12 -right-12 w-32 h-32 bg-teal-500/10 rounded-full blur-2xl"></div>
+            <div class="absolute -bottom-12 -left-12 w-32 h-32 bg-rose-500/10 rounded-full blur-2xl"></div>
+            
+            <h1 class="text-2xl sm:text-3xl font-extrabold text-teal-300 neon-cyan mb-2 tracking-wider">ЭХО В ТЕМНОТЕ 3D // LIDAR</h1>
+            <p class="text-xs text-teal-200/80 mb-6 leading-relaxed">Бесконечная энергия. Чудовища светятся багровым светом повсюду. Радар показывает только маяки и стены.</p>
+            
+            <div class="text-left bg-black/50 p-4 rounded-xl border border-teal-500/20 mb-6 space-y-2 text-[11px] text-teal-100/90">
+                <div class="flex items-center justify-between"><span>ЛЕВ. ПАЛЕЦ:</span><span class="text-teal-300 font-bold">Джойстик (сильнее = бег)</span></div>
+                <div class="flex items-center justify-between"><span>ПРАВ. ЭКРАН:</span><span class="text-teal-300 font-bold">Свободный обзор свайпом</span></div>
+                <div class="flex items-center justify-between"><span>КН. LIDAR:</span><span class="text-teal-300 font-bold">Лазерный конус (удерж.)</span></div>
+                <div class="flex items-center justify-between"><span>КН. СОНАР 360°:</span><span class="text-teal-300 font-bold">Импульс волны</span></div>
+                <div class="flex items-center justify-between"><span>КН. SCANN (R):</span><span class="text-teal-300 font-bold">Инфракрасный плавный скан</span></div>
+                <div class="flex items-center justify-between"><span>КН. PULSE (F):</span><span class="text-teal-300 font-bold">Квантовый взрыв карты</span></div>
+            </div>
+
+            <div class="flex items-center justify-between mb-6 px-2">
+                <span class="text-xs text-teal-300 font-bold">Чувствительность:</span>
+                <input id="sensSlider" type="range" min="0.3" max="3.0" step="0.1" value="1.1" class="w-40 accent-teal-400 bg-black/60 rounded-lg cursor-pointer">
+                <span id="sensValue" class="text-xs text-teal-300 font-bold w-8 text-right">1.1</span>
+            </div>
+
+            <button id="btnStart" class="w-full py-4 bg-teal-500 hover:bg-teal-400 text-black font-extrabold text-sm rounded-xl tracking-widest shadow-[0_0_25px_rgba(0,245,212,0.5)] active:scale-95 transition-all">
+                ЗАПУСТИТЬ СКАНЕР (FULLSCREEN)
+            </button>
+        </div>
+    </div>
+
+    <!-- 3. Экран победы/поражения -->
+    <div id="endModal" class="fixed inset-0 z-50 bg-black/90 hidden flex flex-col items-center justify-center p-6 text-center">
+        <div class="max-w-md w-full panel-glass p-8 rounded-2xl shadow-2xl">
+            <h2 id="endTitle" class="text-2xl sm:text-3xl font-extrabold mb-3 neon-cyan">МИССИЯ ЗАВЕРШЕНА</h2>
+            <p id="endSubtitle" class="text-xs text-teal-100/80 mb-6 leading-relaxed">Статистика сканирования...</p>
+            <button id="btnRestart" class="w-full py-3.5 bg-teal-500 hover:bg-teal-400 text-black font-extrabold text-sm rounded-xl tracking-widest shadow-[0_0_20px_rgba(0,245,212,0.4)] active:scale-95 transition-all">
+                НОВОЕ СКАНИРОВАНИЕ
+            </button>
+        </div>
+    </div>
+
+    <!-- 4. Предупреждение о потере фокуса мыши (ПК) -->
+    <div id="resumeBanner" class="fixed top-4 left-1/2 -translate-x-1/2 z-40 hidden px-4 py-2 bg-teal-500/20 border border-teal-400/50 rounded-lg text-teal-300 text-xs font-bold cursor-pointer shadow-[0_0_15px_rgba(0,245,212,0.3)] animate-pulse">
+        ПАУЗА ОБЗОРА ПК — НАЖМИТЕ ДЛЯ ПРОДОЛЖЕНИЯ
+    </div>
+
+    <!-- 5. Визуальный интерфейс (HUD) -->
+    <div id="hud" class="absolute inset-0 z-30 pointer-events-none hidden flex flex-col justify-between p-4 sm:p-6">
+        <!-- Верхняя панель -->
+        <div class="flex items-start justify-between w-full gap-4">
+            <!-- Статус и маяки -->
+            <div class="panel-glass rounded-xl px-4 py-3 flex flex-col gap-1.5 shadow-lg min-w-[160px]">
+                <div class="flex items-center justify-between gap-4">
+                    <span id="hudBeacons" class="text-xs font-extrabold text-teal-300 neon-cyan tracking-wide">МАЯКИ: 0/5</span>
+                    <span id="hudPointsCount" class="text-[10px] text-teal-100/60 font-mono">0 точек</span>
+                </div>
+                <!-- Бесконечная энергия -->
+                <div class="w-full bg-black/60 rounded-full h-2 overflow-hidden border border-teal-500/30">
+                    <div id="hudEnergyBar" class="bg-gradient-to-r from-teal-500 to-cyan-300 h-full w-full shadow-[0_0_10px_#00f5d4]"></div>
+                </div>
+                <div class="flex items-center justify-between text-[9px] text-teal-300/80 font-bold">
+                    <span>ЭНЕРГИЯ КОНДЕНСАТОРА</span>
+                    <span id="hudEnergyText" class="text-cyan-300">∞ (БЕЗЛИМИТ)</span>
+                </div>
+            </div>
+
+            <!-- Центр: Статус опасности -->
+            <div class="flex flex-col items-center gap-1">
+                <div id="hudThreatLabel" class="panel-glass rounded-lg px-3 py-1.5 text-[10px] sm:text-xs text-teal-300 font-bold tracking-wider uppercase truncate max-w-[220px] sm:max-w-xs text-center shadow-lg">
+                    ФОН: НОРМА
+                </div>
+                <button id="btnHudClear" class="pointer-events-auto px-2.5 py-1 bg-rose-500/20 hover:bg-rose-500/40 border border-rose-500/40 rounded text-[9px] font-bold text-rose-300 active:scale-95 transition-all shadow">
+                    СБРОС ТОЧЕК [C]
+                </button>
+            </div>
+
+            <!-- Правый верх: 2D мини-радар (без монстров!) -->
+            <div class="panel-glass rounded-xl p-2 shadow-lg flex flex-col items-center">
+                <canvas id="miniRadarCanvas" width="96" height="96" class="w-20 h-20 sm:w-24 sm:h-24 rounded-lg bg-black/80 border border-teal-500/30"></canvas>
+                <span class="text-[8px] text-teal-300/80 font-bold mt-1 tracking-widest">РАДАР 2D</span>
+            </div>
+        </div>
+
+        <!-- Нижняя подсказка -->
+        <div class="flex items-end justify-between w-full pointer-events-none pb-2 sm:pb-0">
+            <div id="hudAlertBox" class="panel-glass rounded-xl px-4 py-2 text-[10px] sm:text-xs font-semibold text-teal-300 tracking-wide leading-tight neon-cyan">
+                ЛЕВЫЙ СТИК — ШАГ • ПРАВЫЙ ЭКРАН — ОБЗОР • МОНСТРЫ ВИДНЫ ВСЕГДА
+            </div>
+        </div>
+    </div>
+
+    <!-- 6. Перекрестие прицела -->
+    <div id="crosshair" class="absolute inset-0 z-20 pointer-events-none hidden flex items-center justify-center">
+        <div class="w-1.5 h-1.5 bg-teal-400 rounded-full shadow-[0_0_8px_#00f5d4]"></div>
+    </div>
+
+    <!-- 7. Мобильные элементы управления (Джойстик и Кнопки) -->
+    <div id="touchZones" class="absolute inset-0 z-20 hidden pointer-events-none select-none">
+        <!-- Левая зона: виртуальный джойстик движения -->
+        <div id="touchMoveZone" class="absolute left-0 bottom-0 w-1/2 h-2/3 pointer-events-auto flex items-center justify-start pl-12 pb-12">
+            <div id="joystickBase" class="relative w-28 h-28 rounded-full border-2 border-teal-500/30 bg-teal-500/5 backdrop-blur-sm flex items-center justify-center shadow-[0_0_20px_rgba(0,245,212,0.15)]">
+                <div id="joystickKnob" class="absolute w-12 h-12 rounded-full bg-teal-400/40 border border-teal-300 shadow-[0_0_15px_#00f5d4] transition-transform duration-75"></div>
+                <span id="joystickModeTag" class="absolute -bottom-6 text-[9px] font-extrabold text-teal-200 tracking-wider">ШАГ</span>
+            </div>
+        </div>
+
+        <!-- Правая зона: обзор свайпом и кнопки -->
+        <div id="touchLookZone" class="absolute right-0 bottom-0 w-1/2 h-2/3 pointer-events-auto"></div>
+
+        <!-- Кнопки действий под правый палец -->
+        <div class="absolute right-4 bottom-6 z-30 flex flex-col gap-2.5 items-end pointer-events-auto">
+            <div class="flex gap-2.5">
+                <button id="btnTouchScan" class="mobile-action-btn w-20 h-14 sm:w-24 sm:h-16 rounded-xl bg-cyan-600/40 border border-cyan-400/60 text-cyan-200 font-extrabold text-[10px] sm:text-xs flex flex-col items-center justify-center shadow-[0_0_15px_rgba(0,245,212,0.3)]">
+                    <span>SCANN</span>
+                    <span class="text-[8px] font-normal opacity-85">Инфракрас [R]</span>
+                </button>
+                <button id="btnTouchPulse" class="mobile-action-btn w-20 h-14 sm:w-24 sm:h-16 rounded-xl bg-indigo-600/40 border border-indigo-400/60 text-indigo-200 font-extrabold text-[10px] sm:text-xs flex flex-col items-center justify-center shadow-[0_0_15px_rgba(99,102,241,0.3)]">
+                    <span>PULSE</span>
+                    <span class="text-[8px] font-normal opacity-85">Взрыв [F]</span>
+                </button>
+            </div>
+            <div class="flex gap-2.5">
+                <button id="btnTouchSonar" class="mobile-action-btn w-20 h-14 sm:w-24 sm:h-16 rounded-xl bg-amber-500/30 border border-amber-400/60 text-amber-200 font-extrabold text-[10px] sm:text-xs flex flex-col items-center justify-center shadow-[0_0_15px_rgba(255,209,102,0.3)]">
+                    <span>СОНАР</span>
+                    <span class="text-[8px] font-normal opacity-85">360° Импульс</span>
+                </button>
+                <button id="btnTouchLidar" class="mobile-action-btn w-24 h-14 sm:w-28 sm:h-16 rounded-xl bg-teal-500/30 border border-teal-400/70 text-teal-200 font-extrabold text-[10px] sm:text-xs flex flex-col items-center justify-center shadow-[0_0_20px_rgba(0,245,212,0.4)]">
+                    <span>LIDAR</span>
+                    <span class="text-[8px] font-normal opacity-85">Удерживать</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 8. Контейнер для 3D сцены Three.js -->
+    <div id="threeContainer" class="absolute inset-0 z-0"></div>
+
+    <!-- 9. Логика звука и игры -->
+    <script>
+        /** Процедурный звуковой движок на Web Audio API */
+        class LidarAudioEngine {
+            constructor() {
+                this.ctx = null;
+                this.masterGain = null;
+            }
+            init() {
+                if (this.ctx) return;
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                this.ctx = new AudioCtx();
+                this.masterGain = this.ctx.createGain();
+                this.masterGain.gain.value = 0.35;
+                this.masterGain.connect(this.ctx.destination);
+            }
+            playLidarSweepTick(dt) {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(800 + Math.random() * 400, this.ctx.currentTime);
+                gain.gain.setValueAtTime(0.015, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + 0.04);
+                osc.connect(gain);
+                gain.connect(this.masterGain);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.04);
+            }
+            playSonarPulse() {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(320, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(90, this.ctx.currentTime + 0.5);
+                gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.5);
+                osc.connect(gain);
+                gain.connect(this.masterGain);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.5);
+            }
+            playQuantumPulse() {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(1200, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(150, this.ctx.currentTime + 0.8);
+                gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.8);
+                osc.connect(gain);
+                gain.connect(this.masterGain);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.8);
+            }
+            playBeaconCollect() {
+                if (!this.ctx) return;
+                const now = this.ctx.currentTime;
+                [523.25, 659.25, 783.99, 1046.5].forEach((freq, i) => {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(freq, now + i * 0.08);
+                    gain.gain.setValueAtTime(0.15, now + i * 0.08);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.08 + 0.3);
+                    osc.connect(gain);
+                    gain.connect(this.masterGain);
+                    osc.start(now + i * 0.08);
+                    osc.stop(now + i * 0.08 + 0.3);
+                });
+            }
+            playGameOver() {
+                if (!this.ctx) return;
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(150, now);
+                osc.frequency.linearRampToValueAtTime(40, now + 1.2);
+                gain.gain.setValueAtTime(0.35, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
+                osc.connect(gain);
+                gain.connect(this.masterGain);
+                osc.start(now);
+                osc.stop(now + 1.2);
+            }
+        }
+
+        /** Главный класс 3D-игры */
+        class EchoLidar3DGame {
+            constructor() {
+                this.container = document.getElementById('threeContainer');
+                this.audio = new LidarAudioEngine();
+                this.state = 'MENU';
+                this.isLocked = false;
+                this.mouseSensitivity = 1.1;
+                this.startTime = 0;
+                this.elapsedTime = 0;
+
+                this.gridCols = 13;
+                this.gridRows = 13;
+                this.cellSize = 6.0;
+                this.wallHeight = 4.2;
+
+                this.player = {
+                    pos: new THREE.Vector3(3, 1.7, 3),
+                    yaw: 0,
+                    pitch: 0,
+                    radius: 0.65,
+                    energy: 100,
+                    maxEnergy: 100,
+                    footstepTimer: 0
+                };
+
+                this.keys = {};
+                this.isLidarSweeping = false;
+                this.isInfraScanning = false; // Режим SCANN
+
+                this.touchMoveId = null;
+                this.touchMoveOrigin = { x: 0, y: 0 };
+                this.touchMoveVec = { x: 0, y: 0 };
+                this.touchLookId = null;
+                this.touchLookLast = { x: 0, y: 0 };
+
+                this.maxPoints = 120000;
+                this.pointCount = 0;
+                this.pointWriteIndex = 0;
+
+                this.colliders = [];
+                this.scanMeshes = [];
+                this.beacons = [];
+                this.predators = [];
+                this.exitPortal = null;
+
+                this.radarCanvas = document.getElementById('miniRadarCanvas');
+                this.radarCtx = this.radarCanvas.getContext('2d');
+
+                this.initThree();
+                this.initPersistentPointCloud();
+                this.bindEvents();
+                this.lastTime = performance.now();
+                requestAnimationFrame((t) => this.animate(t));
+            }
+
+            initThree() {
+     
