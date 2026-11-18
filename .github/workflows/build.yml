@@ -26,7 +26,7 @@ jobs:
           mkdir -p android-app/app/src/main/res/mipmap-xhdpi
 
           # Копируем нашу игру в активы WebView
-          cp index.html android-app/app/src/main/assets/index.html
+          cp bobo android-app/app/src/main/assets/bobo
 
           # Создаем build.gradle для Android проекта
           cat << 'EOF' > android-app/build.gradle
